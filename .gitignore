@@ -43,13 +43,13 @@ env/
 .coverage
 htmlcov/
 
-# Local databases
+# Local databases and runtime data
 *.sqlite
 *.sqlite3
 *.db
+data/
 
 # Environment variables & secrets (NEVER COMMIT SECRETS)
 .env
 .env.*
 !.env.example
-
