@@ -44,8 +44,8 @@ def get_current_caller(
     elif "authorization" in request.headers:
         raw_auth = request.headers.get("authorization", "")
         parts = raw_auth.split()
-        if len(parts) == 2 and parts[0].lower() == "bearer":
-            token = parts[1]
+        if len(parts) >= 2 and parts[0].lower() == "bearer":
+            token = parts[-1]
         elif len(parts) == 1:
             token = parts[0]
 
@@ -55,11 +55,15 @@ def get_current_caller(
             detail="Missing Authorization header",
         )
 
+    # Defensive cleanup: strip accidental repeated 'Bearer ' prefixes
+    while token.lower().startswith("bearer "):
+        token = token.split(maxsplit=1)[1].strip()
+
     caller = MERCHANT_TOKENS.get(token)
     if not caller:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or unrecognized bearer token",
+            detail=f"Invalid or unrecognized bearer token '{token}'",
         )
 
     return caller
