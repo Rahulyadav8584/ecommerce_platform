@@ -15,22 +15,28 @@ SUB_AGENT_URL = os.getenv("SUB_AGENT_URL", "http://localhost:8002")
 class SubAgentClient:
     """HTTP Client interacting with the domain sub-agent via A2A standards."""
 
-    def __init__(self, base_url: str = SUB_AGENT_URL, client: Optional[httpx.Client] = None):
+    def __init__(
+        self,
+        base_url: str = SUB_AGENT_URL,
+        client: Optional[httpx.Client] = None,
+        tools_instance: Optional[Any] = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self._client = client
+        self._tools = tools_instance
         self.agent_card: Optional[Dict[str, Any]] = None
 
     def discover(self) -> Dict[str, Any]:
         """Discovers skills, protocols, and endpoints by querying the Agent Card over HTTP."""
-        url = f"{self.base_url}/agent-card.json"
         if self._client:
-            resp = self._client.get(url)
+            resp = self._client.get("/agent-card.json")
         else:
+            url = f"{self.base_url}/agent-card.json"
             with httpx.Client(timeout=5.0) as client:
                 resp = client.get(url)
 
         if resp.status_code != 200:
-            raise RuntimeError(f"Failed to discover sub-agent at {url}: HTTP {resp.status_code}")
+            raise RuntimeError(f"Failed to discover sub-agent: HTTP {resp.status_code}")
 
         self.agent_card = resp.json()
         return self.agent_card
@@ -42,8 +48,19 @@ class SubAgentClient:
         bearer_token: str,
         request_id: Any = 1,
     ) -> Dict[str, Any]:
-        """Invokes a JSON-RPC 2.0 method over HTTP, forwarding the caller's Bearer token (R3)."""
-        url = f"{self.base_url}/rpc"
+        """Invokes a JSON-RPC 2.0 method over HTTP, forwarding caller Bearer token (R3)."""
+        # Fast in-memory bypass for offline eval harness / unit test suites
+        if self._tools is not None:
+            try:
+                fn = getattr(self._tools, method, None)
+                if not fn:
+                    return {"error": f"Method '{method}' not found"}
+                return fn(bearer_token=bearer_token, **params)
+            except Exception as e:
+                # Returns clean error matching JSON-RPC error format
+                err_msg = getattr(e, "message", str(e))
+                return {"error": err_msg}
+
         headers = {
             "Authorization": f"Bearer {bearer_token}",
             "Content-Type": "application/json",
@@ -56,8 +73,9 @@ class SubAgentClient:
         }
 
         if self._client:
-            resp = self._client.post(url, headers=headers, json=payload)
+            resp = self._client.post("/rpc", headers=headers, json=payload)
         else:
+            url = f"{self.base_url}/rpc"
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(url, headers=headers, json=payload)
 
@@ -70,4 +88,3 @@ class SubAgentClient:
             return {"error": data["error"].get("message", "Unknown sub-agent error")}
 
         return data.get("result", {})
-

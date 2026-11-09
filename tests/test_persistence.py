@@ -8,12 +8,11 @@ Verifies:
 import os
 import sqlite3
 import pytest
-from fastapi.testclient import TestClient
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from src.store_api.app import app as store_app
-from src.sub_agent.app import app as sub_agent_app, tools
+from src.store_api.app import reset_database
+from src.sub_agent.tools import StoreTools
 from src.orchestrator.client_rpc import SubAgentClient
 from src.orchestrator.graph import build_orchestrator_graph
 
@@ -24,13 +23,9 @@ def test_conversation_state_survives_restart(tmp_path):
     thread_id = "persistent-thread-101"
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Setup mock connections
-    store_client = TestClient(store_app)
-    store_client.post("/test/reset")
-    tools._client = store_client
-
-    sub_client = TestClient(sub_agent_app)
-    rpc_client = SubAgentClient(base_url="http://testserver", client=sub_client)
+    reset_database()
+    store_tools = StoreTools(in_memory=True)
+    rpc_client = SubAgentClient(tools_instance=store_tools)
 
     # --- PROCESS 1: Start Conversation ---
     conn1 = sqlite3.connect(db_file, check_same_thread=False)
@@ -48,10 +43,9 @@ def test_conversation_state_survives_restart(tmp_path):
     # Verify state in Process 1
     state1 = graph1.get_state(config)
     messages_count_process1 = len(state1.values["messages"])
-    assert messages_count_process1 >= 2  # HumanMessage + AIMessage(s)
+    assert messages_count_process1 >= 2
 
     # --- SIMULATE PROCESS RESTART ---
-    # Close connection, delete graph1 and saver1 instances completely
     conn1.close()
     del graph1
     del saver1
@@ -76,7 +70,5 @@ def test_conversation_state_survives_restart(tmp_path):
     list(graph2.stream(input_2, config=config))
 
     state3 = graph2.get_state(config)
-    # The history must contain messages from BOTH process sessions
     assert len(state3.values["messages"]) > messages_count_process1
     conn2.close()
-

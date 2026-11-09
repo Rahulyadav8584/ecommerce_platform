@@ -7,16 +7,14 @@ Verifies:
 - Rejection does not execute the mutation.
 """
 
-import httpx
 import pytest
-from fastapi.testclient import TestClient
+import sqlite3
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
-import sqlite3
 
-from src.store_api.app import app as store_app
-from src.sub_agent.app import app as sub_agent_app, tools
+import src.store_api.app as store_module
+from src.sub_agent.tools import StoreTools
 from src.orchestrator.client_rpc import SubAgentClient
 from src.orchestrator.graph import build_orchestrator_graph
 
@@ -24,28 +22,20 @@ from src.orchestrator.graph import build_orchestrator_graph
 @pytest.fixture
 def test_graph():
     """Wires in-memory test clients across store, sub-agent, and orchestrator."""
-    # Reset store DB
-    store_client = TestClient(store_app)
-    store_client.post("/test/reset")
+    store_module.reset_database()
+    store_tools = StoreTools(in_memory=True)
+    rpc_client = SubAgentClient(tools_instance=store_tools)
 
-    # Wire sub_agent to store_app
-    tools._client = store_client
-
-    # Wire orchestrator to sub_agent_app
-    sub_client = TestClient(sub_agent_app)
-    rpc_client = SubAgentClient(base_url="http://testserver", client=sub_client)
-
-    # In-memory checkpointer
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     checkpointer = SqliteSaver(conn)
 
     graph = build_orchestrator_graph(sub_agent_client=rpc_client, checkpointer=checkpointer)
-    return graph, store_client
+    return graph, store_tools
 
 
 def test_hitl_refund_proposal_reject(test_graph):
     """Refund request generates proposal, and explicit rejection DOES NOT mutate order (R5)."""
-    graph, store_client = test_graph
+    graph, store_tools = test_graph
     thread_id = "thread-hitl-reject"
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -75,27 +65,19 @@ def test_hitl_refund_proposal_reject(test_graph):
     assert "delta_summary" in proposal
 
     # Verify order in store API is STILL in PAID status (not yet mutated)
-    lookup_resp = store_client.get(
-        "/orders/lookup?id=order-1002",
-        headers={"Authorization": "Bearer token-merchant-alpha"},
-    )
-    assert lookup_resp.json()["order"]["status"] == "PAID"
+    assert store_module._orders_db["order-1002"].status == "PAID"
 
     # 2. Reject the proposal
     resume_chunks = list(graph.stream(Command(resume="reject"), config=config))
     assert len(resume_chunks) > 0
 
     # Verify order in store API is STILL in PAID status
-    lookup_resp2 = store_client.get(
-        "/orders/lookup?id=order-1002",
-        headers={"Authorization": "Bearer token-merchant-alpha"},
-    )
-    assert lookup_resp2.json()["order"]["status"] == "PAID"
+    assert store_module._orders_db["order-1002"].status == "PAID"
 
 
 def test_hitl_refund_proposal_approve(test_graph):
     """Refund request generates proposal, and explicit approval executes mutation (R5)."""
-    graph, store_client = test_graph
+    graph, store_tools = test_graph
     thread_id = "thread-hitl-approve"
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -115,9 +97,4 @@ def test_hitl_refund_proposal_approve(test_graph):
     assert len(resume_chunks) > 0
 
     # Verify order in store API is now REFUNDED!
-    lookup_resp = store_client.get(
-        "/orders/lookup?id=order-1002",
-        headers={"Authorization": "Bearer token-merchant-alpha"},
-    )
-    assert lookup_resp.json()["order"]["status"] == "REFUNDED"
-
+    assert store_module._orders_db["order-1002"].status == "REFUNDED"

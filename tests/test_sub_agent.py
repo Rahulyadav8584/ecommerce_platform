@@ -14,18 +14,17 @@ Verifies:
 import pytest
 from fastapi.testclient import TestClient
 
-from src.store_api.app import app as store_app
+from src.store_api.app import reset_database
 from src.sub_agent.app import app as sub_agent_app, tools
 
 
 @pytest.fixture(autouse=True)
 def wire_store_client():
-    """Wires the StoreTools client directly to the in-memory Store API via TestClient."""
-    store_client = TestClient(store_app)
-    store_client.post("/test/reset")
-    tools._client = store_client
+    """Configures StoreTools to run in-memory for deterministic, zero-network tests."""
+    reset_database()
+    tools.in_memory = True
     yield
-    tools._client = None
+    tools.in_memory = False
 
 
 @pytest.fixture

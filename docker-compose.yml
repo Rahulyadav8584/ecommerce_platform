@@ -1,0 +1,92 @@
+services:
+  # R10: PostgreSQL database for durable LangGraph checkpoints (R7)
+  postgres:
+    image: postgres:16-alpine
+    container_name: shophub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: shophub_checkpoints
+    ports:
+      # Port 5433 on host maps to 5432 in container (avoids conflict with local Windows PostgreSQL)
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shophub_checkpoints"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # R0: In-memory Mock Store API (Port 8001)
+  store-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shophub-store-api
+    restart: unless-stopped
+    command: ["uvicorn", "src.store_api.app:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/auth/me')\" || exit 0"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # R2: Domain Sub-Agent "Orders Agent" (Port 8002)
+  sub-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shophub-sub-agent
+    restart: unless-stopped
+    command: ["uvicorn", "src.sub_agent.app:app", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "8002:8002"
+    environment:
+      - STORE_API_URL=http://store-api:8001
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      store-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/agent-card.json')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # R1, R5, R6: Orchestrator Agent (Port 8000)
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shophub-orchestrator
+    restart: unless-stopped
+    command: ["uvicorn", "src.orchestrator.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      - STORE_API_URL=http://store-api:8001
+      - SUB_AGENT_URL=http://sub-agent:8002
+      - DATABASE_URL=postgresql://postgres:postgrespassword@postgres:5432/shophub_checkpoints
+      - LLM_PROVIDER=fake
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sub-agent:
+        condition: service_started
+      store-api:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

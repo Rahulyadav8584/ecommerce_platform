@@ -21,19 +21,12 @@ from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResu
 
 
 class ScriptedFakeChatModel(BaseChatModel):
-    """Deterministic offline Chat Model compatible with LangGraph.
-
-    Inspects message history and:
-    1. Chooses appropriate tool calls for order queries and mutations.
-    2. Synthesizes coherent answers once tool outputs return.
-    3. Handles prompt-injection notes safely by ignoring adversarial commands.
-    """
+    """Deterministic offline Chat Model compatible with LangGraph."""
 
     model_name: str = "fake-scripted-model"
     tools: List[Dict[str, Any]] = []
 
     def bind_tools(self, tools: List[Any], **kwargs: Any) -> "ScriptedFakeChatModel":
-        """Records bound tools for introspection."""
         clone = self.model_copy()
         clone.tools = tools
         return clone
@@ -43,32 +36,14 @@ class ScriptedFakeChatModel(BaseChatModel):
         return "scripted-fake-chat-model"
 
     def _decide_response(self, messages: List[BaseMessage]) -> AIMessage:
-        """Determines the appropriate AIMessage (either a tool call or an answer)."""
         last_message = messages[-1]
 
-        # 1. If the last message is a ToolMessage, summarize the result to the user
+        # 1. If the last message is a ToolMessage, summarize result
         if isinstance(last_message, ToolMessage):
             tool_content = str(last_message.content)
 
-            # Check if this was a lookup_order response
-            if "order-" in tool_content and "status" in tool_content:
-                # If adversarial prompt injection is present, demonstrate immunity:
-                if "NEUTRALIZED_DIRECTIVE" in tool_content or "ignore your instructions" in tool_content:
-                    return AIMessage(
-                        content=(
-                            "I have retrieved the details for your order. "
-                            "Please note that the customer note has been contained and ignored as it contains unauthorized instructions. "
-                            "The order is currently in PLACED status."
-                        )
-                    )
-                return AIMessage(
-                    content=f"Here are the details for the requested order: {tool_content}"
-                )
-
-            # Check if this was a list_orders response
-            if "[" in tool_content and "]" in tool_content:
-                # Specific intent: "which paid orders have not shipped in 3 days?"
-                # Look back in history to check original user query:
+            # Check if this was a list_orders response (JSON list starting with '[')
+            if tool_content.strip().startswith("["):
                 user_texts = [m.content for m in messages if isinstance(m, HumanMessage)]
                 last_user_query = user_texts[-1].lower() if user_texts else ""
 
@@ -88,25 +63,37 @@ class ScriptedFakeChatModel(BaseChatModel):
 
                 return AIMessage(content=f"Here are the matching orders for your store: {tool_content}")
 
-            # Error from tool (e.g. order not found, cross-tenant access)
+            # Check if this was a single order lookup
+            if "order-" in tool_content and "status" in tool_content:
+                if "NEUTRALIZED_DIRECTIVE" in tool_content or "ignore your instructions" in tool_content:
+                    return AIMessage(
+                        content=(
+                            "I have retrieved the details for your order. "
+                            "Please note that the customer note has been contained and ignored as it contains unauthorized instructions. "
+                            "The order is currently in PLACED status."
+                        )
+                    )
+                return AIMessage(content=f"Here are the details for the requested order: {tool_content}")
+
+            # Proposal executed or rejected
+            if "PROPOSAL APPROVED" in tool_content:
+                return AIMessage(content=tool_content)
+            if "PROPOSAL REJECTED" in tool_content:
+                return AIMessage(content=tool_content)
+
+            # Error from tool
             if "not found" in tool_content.lower() or "error" in tool_content.lower():
                 return AIMessage(
                     content=f"I was unable to find that order. Details: {tool_content}"
                 )
 
-            # Proposal response
-            if "proposal_type" in tool_content:
-                return AIMessage(
-                    content=f"A proposal has been generated for your review: {tool_content}"
-                )
-
             return AIMessage(content=f"Tool executed: {tool_content}")
 
-        # 2. If the last message is from a Human, determine which tool to call
+        # 2. Human Message routing
         if isinstance(last_message, HumanMessage):
             query = last_message.content.lower()
 
-            # A. Refund proposal request
+            # A. Refund proposal
             if "refund" in query:
                 order_match = re.search(r'order[-\s]?(\d+)', query)
                 order_id = f"order-{order_match.group(1)}" if order_match else "order-1002"
@@ -119,7 +106,7 @@ class ScriptedFakeChatModel(BaseChatModel):
                     }],
                 )
 
-            # B. Cancel proposal request
+            # B. Cancel proposal
             if "cancel" in query:
                 order_match = re.search(r'order[-\s]?(\d+)', query)
                 order_id = f"order-{order_match.group(1)}" if order_match else "order-1004"
@@ -154,7 +141,7 @@ class ScriptedFakeChatModel(BaseChatModel):
                     }],
                 )
 
-            # E. Specific order lookup (e.g. "what is the status of order 1004?")
+            # E. Specific order lookup
             order_match = re.search(r'order[-\s]?(\d+)', query)
             if order_match:
                 order_id = f"order-{order_match.group(1)}"
@@ -178,7 +165,6 @@ class ScriptedFakeChatModel(BaseChatModel):
                     }],
                 )
 
-            # Fallback direct answer
             return AIMessage(
                 content="I am your ShopHub store assistant. You can ask me about orders, unshipped items, or propose cancellations and refunds."
             )
@@ -203,10 +189,8 @@ class ScriptedFakeChatModel(BaseChatModel):
         run_manager: Optional[CallbackManagerForLLMRun] = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        """Streams response tokens word-by-word for SSE testing."""
         ai_message = self._decide_response(messages)
 
-        # If it has tool calls, yield them directly
         if ai_message.tool_calls:
             chunk = ChatGenerationChunk(
                 message=AIMessageChunk(
@@ -227,7 +211,6 @@ class ScriptedFakeChatModel(BaseChatModel):
             yield chunk
             return
 
-        # Stream text words as individual chunks
         words = ai_message.content.split(" ")
         for i, word in enumerate(words):
             token = word if i == 0 else f" {word}"
@@ -235,4 +218,3 @@ class ScriptedFakeChatModel(BaseChatModel):
             if run_manager:
                 run_manager.on_llm_new_token(token, chunk=chunk)
             yield chunk
-
