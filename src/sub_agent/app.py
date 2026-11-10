@@ -6,7 +6,7 @@ Runs on Port 8002 and exposes:
 """
 
 from typing import Any, Dict, Optional, Union
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field

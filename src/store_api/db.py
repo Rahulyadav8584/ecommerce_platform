@@ -287,3 +287,4 @@ def get_order_store(db_url: Optional[str] = None) -> collections.abc.MutableMapp
         except Exception as e:
             print(f"[Store API] Warning: Failed to connect to PostgreSQL ({e}). Falling back to in-memory store.")
     return InMemoryOrdersStore()
+

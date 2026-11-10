@@ -7,7 +7,7 @@ Supports:
 
 import os
 import sqlite3
-from typing import Any, Optional
+from typing import Optional
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
