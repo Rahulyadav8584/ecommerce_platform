@@ -128,6 +128,90 @@ Once connected, open database **`shophub_checkpoints`** → **Schemas** → **`p
 
 ---
 
+### 6. Manual Testing via Swagger UI
+
+You can interactively test every scenario directly from the browser using the built-in Swagger OpenAPI interfaces:
+
+#### Step 1: Open Orchestrator Swagger & Authorize
+1. Open **[http://localhost:8000/docs](http://localhost:8000/docs)**.
+2. Click the green **Authorize 🔒** button (top right).
+3. In the value field, enter:
+   ```text
+   token-merchant-alpha
+   ```
+4. Click **Authorize** and then **Close**.
+
+#### Step 2: Customer Order History
+1. Expand **`POST /chat/stream`** and click **Try it out**.
+2. Enter the request payload:
+   ```json
+   {
+     "message": "What did customer Maria order last?",
+     "thread_id": "manual-session-maria"
+   }
+   ```
+3. Click **Execute** ➔ Streams tool events and returns:
+   > *"Customer Maria Silva's latest order is order-1002, placed on 2026-11-01 for $84.00 (Status: PAID)."*
+
+#### Step 3: Unshipped Paid Orders Inquiry
+1. On **`POST /chat/stream`**, execute:
+   ```json
+   {
+     "message": "Which paid orders have not shipped in 3 days?",
+     "thread_id": "manual-session-unshipped"
+   }
+   ```
+2. Response streams:
+   > *"Found 2 paid orders that were placed more than 3 days ago and have not shipped yet:*  
+   > *1. Order order-1002 (Maria Silva) - Placed 2026-11-01 ($84.00)*  
+   > *2. Order order-1003 (John Doe) - Placed 2026-10-31 ($210.00)"*
+
+#### Step 4: Human-in-the-Loop (HITL) Propose & Approve Refund
+1. On **`POST /chat/stream`**, request a refund:
+   ```json
+   {
+     "message": "Refund order 1002",
+     "thread_id": "manual-session-refund"
+   }
+   ```
+2. Click **Execute** ➔ The graph pauses execution and emits a `proposal_required` event:
+   ```json
+   {
+     "proposal_type": "REFUND",
+     "order_id": "order-1002",
+     "merchant": "merchant_alpha",
+     "customer_name": "Maria Silva",
+     "current_status": "PAID",
+     "target_status": "REFUNDED",
+     "amount": 84.0,
+     "delta_summary": "Order order-1002 status will change from 'PAID' to 'REFUNDED', refunding $84.00."
+   }
+   ```
+3. Expand **`POST /chat/resume`** and click **Try it out**.
+4. Enter:
+   ```json
+   {
+     "thread_id": "manual-session-refund",
+     "decision": "approve"
+   }
+   ```
+5. Click **Execute** ➔ Resumes execution, applies the mutation to the PostgreSQL database, and streams the completion confirmation.
+
+#### Step 5: Testing Domain Sub-Agent Directly (`POST /rpc`)
+1. Open **[http://localhost:8002/docs](http://localhost:8002/docs)** and authorize with `token-merchant-alpha`.
+2. Expand **`POST /rpc`** and execute a JSON-RPC 2.0 lookup on `order-1004` (testing prompt-injection containment):
+   ```json
+   {
+     "jsonrpc": "2.0",
+     "method": "lookup_order",
+     "params": { "id": "order-1004" },
+     "id": 1
+   }
+   ```
+3. Observe that customer PII is redacted (`[EMAIL_REDACTED]`) and the malicious injection directive is neutralized inside `<untrusted_customer_note>` boundary tags.
+
+---
+
 ## Configuration & Model Provider
 
 Configuration is controlled via environment variables (see `.env.example`):
