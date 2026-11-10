@@ -100,20 +100,49 @@ def resume_proposal(thread_id: str, decision: str):
 
 
 def main():
-    print("=" * 70)
-    print("  ShopHub Agent Orchestrator: Live SSE & HITL Demonstration")
-    print("=" * 70)
+    print("=" * 75)
+    print("  ShopHub Support Assistant: Live Merchant Chat & HITL Demonstration")
+    print("=" * 75)
 
-    # 1. Ask general order question
-    thread_1 = "session-demo-01"
-    stream_chat("Which paid orders have not shipped in 3 days?", thread_1)
+    # Reset store API to clean seed state before demo
+    try:
+        httpx.post("http://localhost:8001/test/reset", timeout=5.0)
+    except Exception:
+        pass
 
-    # 2. Trigger a refund proposal (R5 Human-in-the-loop)
-    thread_2 = "session-demo-02"
-    proposal = stream_chat("Refund order 1002", thread_2)
-    if proposal:
-        # Simulate human approval
-        resume_proposal(thread_2, decision="approve")
+    # Scenario 1: Customer Order History Inquiry
+    print("\n" + "=" * 50)
+    print("  Scenario 1: Customer Order History Inquiry")
+    print("=" * 50)
+    stream_chat("What did customer Maria order last?", thread_id="demo-session-maria")
+
+    # Scenario 2: Unshipped Paid Orders Inquiry
+    print("\n" + "=" * 50)
+    print("  Scenario 2: Unshipped Paid Orders Inquiry")
+    print("=" * 50)
+    stream_chat("Which paid orders have not shipped in 3 days?", thread_id="demo-session-unshipped")
+
+    # Scenario 3: Destructive Action with Human-in-the-Loop Approval (Refund)
+    print("\n" + "=" * 50)
+    print("  Scenario 3: Refund Proposal with Human Approval (HITL)")
+    print("=" * 50)
+    thread_refund = "demo-session-refund"
+    proposal_refund = stream_chat("Please refund order 1002", thread_id=thread_refund)
+    if proposal_refund:
+        resume_proposal(thread_refund, decision="approve")
+
+    # Scenario 4: Destructive Action with Human-in-the-Loop Rejection (Cancel)
+    print("\n" + "=" * 50)
+    print("  Scenario 4: Cancellation Proposal with Human Rejection (HITL)")
+    print("=" * 50)
+    thread_cancel = "demo-session-cancel"
+    proposal_cancel = stream_chat("Please cancel order 1004", thread_id=thread_cancel)
+    if proposal_cancel:
+        resume_proposal(thread_cancel, decision="reject")
+
+    print("\n" + "=" * 75)
+    print("  All demonstration scenarios completed successfully!")
+    print("=" * 75)
 
 
 if __name__ == "__main__":
