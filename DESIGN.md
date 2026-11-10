@@ -41,7 +41,8 @@ The platform implements a decoupled, multi-tier agent architecture where indepen
                                    ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │  Mock Store API Service (Port 8001)                                    │
-│  - In-memory data store with seeded merchants & orders (R0)            │
+│  - Durable PostgreSQL store for orders table in shophub_checkpoints    │
+│    (with automatic schema creation, seeding & in-memory fallback)      │
 │  - Scoped endpoints: /auth/me, /orders, /orders/refund, /orders/cancel │
 │  - Legacy endpoint: /orders/lookup?id= (returns 200 with status: false)│
 └────────────────────────────────────────────────────────────────────────┘

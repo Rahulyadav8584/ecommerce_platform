@@ -182,6 +182,7 @@ class StoreTools:
             if order.status not in {OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DELIVERED}:
                 raise StoreAPIError(f"Refund conflict: cannot refund order in '{order.status}' status", code=-32009)
             order.status = OrderStatus.REFUNDED
+            _orders_db[target_id] = order
             return sanitize_order_for_model(order.model_dump())
 
         response = self._request(
@@ -247,6 +248,7 @@ class StoreTools:
             if order.status not in {OrderStatus.PLACED, OrderStatus.PAID}:
                 raise StoreAPIError(f"Cancellation conflict: cannot cancel order in '{order.status}' status", code=-32009)
             order.status = OrderStatus.CANCELLED
+            _orders_db[target_id] = order
             return sanitize_order_for_model(order.model_dump())
 
         response = self._request(

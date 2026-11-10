@@ -114,6 +114,18 @@ Starts PostgreSQL, Mock Store API, Sub-Agent, and Orchestrator with one command:
 docker compose up --build
 ```
 
+#### Inspecting Database in pgAdmin or psql:
+When running with Docker Compose, PostgreSQL runs on host port **`5433`**:
+- **Host:** `localhost` / `127.0.0.1`
+- **Port:** `5433` (Docker maps host 5433 to container 5432)
+- **Maintenance Database:** `postgres`
+- **Username:** `postgres`
+- **Password:** `postgrespassword`
+
+Once connected, open database **`shophub_checkpoints`** → **Schemas** → **`public`** → **Tables**:
+- **`orders`**: Durable store for all customer orders, status, amounts, and customer notes. Mutations (refunds/cancellations) update here in real time.
+- **`checkpoints`**, **`checkpoint_blobs`**, **`checkpoint_writes`**: Durable conversation checkpoints and HITL interrupt states managed by LangGraph.
+
 ---
 
 ## Configuration & Model Provider

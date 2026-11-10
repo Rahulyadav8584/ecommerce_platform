@@ -13,16 +13,18 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.store_api.models import ActionRequest, AuthMeResponse, Order, OrderStatus
-from src.store_api.seed_data import MERCHANT_TOKENS, get_fresh_seed_orders
+from src.store_api.seed_data import MERCHANT_TOKENS
+from src.store_api.db import get_order_store
 
 app = FastAPI(
     title="ShopHub Mock Store API",
     version="0.1.0",
-    description="Mock Store API with multi-merchant bearer token authentication and legacy envelope handling.",
+    description="Mock Store API with multi-merchant bearer token authentication, PostgreSQL durability, and legacy envelope handling.",
 )
 
-# In-memory store: id -> Order
-_orders_db: Dict[str, Order] = get_fresh_seed_orders()
+# Durable PostgreSQL store (falls back to in-memory store if DB is unconfigured/offline)
+orders_store = get_order_store()
+_orders_db = orders_store
 
 # OpenAPI HTTPBearer security scheme (adds the green 'Authorize' button in Swagger UI)
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -91,16 +93,7 @@ def list_orders(
             detail="Caller has no assigned merchant (fail-closed)",
         )
 
-    results = [
-        order for order in _orders_db.values()
-        if order.merchant == merchant
-    ]
-
-    if status_filter:
-        results = [o for o in results if o.status == status_filter]
-
-    # Return newest orders first
-    results.sort(key=lambda o: o.placed_at, reverse=True)
+    results = orders_store.list_orders(merchant, status_filter)
     return results
 
 
@@ -125,8 +118,8 @@ def lookup_order(
             content={"status": False, "message": "Order not found"},
         )
 
-    order = _orders_db.get(id)
-    if not order or order.merchant != merchant:
+    order = orders_store.get_order(id, merchant)
+    if not order:
         # Cross-tenant access or missing order: legacy 200 with status: false
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -156,8 +149,8 @@ def refund_order(
             detail="Caller has no assigned merchant",
         )
 
-    order = _orders_db.get(payload.id)
-    if not order or order.merchant != merchant:
+    order = orders_store.get_order(payload.id, merchant)
+    if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Order '{payload.id}' not found",
@@ -170,9 +163,9 @@ def refund_order(
             detail=f"Cannot refund order in '{order.status}' status. Only PAID, SHIPPED, or DELIVERED orders can be refunded.",
         )
 
-    # Perform mutation
-    order.status = OrderStatus.REFUNDED
-    return order
+    # Perform mutation in store (persists to PostgreSQL when connected)
+    updated = orders_store.update_order_status(payload.id, merchant, OrderStatus.REFUNDED)
+    return updated or order
 
 
 @app.post("/orders/cancel", response_model=Order)
@@ -192,8 +185,8 @@ def cancel_order(
             detail="Caller has no assigned merchant",
         )
 
-    order = _orders_db.get(payload.id)
-    if not order or order.merchant != merchant:
+    order = orders_store.get_order(payload.id, merchant)
+    if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Order '{payload.id}' not found",
@@ -206,14 +199,13 @@ def cancel_order(
             detail=f"Cannot cancel order in '{order.status}' status. Orders already SHIPPED, DELIVERED, CANCELLED, or REFUNDED cannot be cancelled.",
         )
 
-    # Perform mutation
-    order.status = OrderStatus.CANCELLED
-    return order
+    # Perform mutation in store (persists to PostgreSQL when connected)
+    updated = orders_store.update_order_status(payload.id, merchant, OrderStatus.CANCELLED)
+    return updated or order
 
 
 @app.post("/test/reset")
 def reset_database() -> Dict[str, str]:
-    """Helper for testing to reset the in-memory database to seed state."""
-    global _orders_db
-    _orders_db = get_fresh_seed_orders()
-    return {"status": "reset", "order_count": str(len(_orders_db))}
+    """Helper for testing to reset the database to seed state."""
+    count = orders_store.reset()
+    return {"status": "reset", "order_count": str(count)}
