@@ -5,7 +5,7 @@ Accurately predicts user intents and emits predetermined tool calls and streamed
 for multi-turn evaluation and automated tests.
 """
 
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 import re
 
 from langchain_core.callbacks import CallbackManagerForLLMRun

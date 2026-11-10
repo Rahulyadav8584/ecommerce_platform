@@ -5,9 +5,7 @@ Verifies:
 - Demonstrates: start conversation -> simulate process restart -> continue conversation.
 """
 
-import os
 import sqlite3
-import pytest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 

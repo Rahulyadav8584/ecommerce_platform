@@ -6,7 +6,7 @@ Caller credentials (Bearer tokens) are forwarded per-invocation.
 """
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 import httpx
 
 SUB_AGENT_URL = os.getenv("SUB_AGENT_URL", "http://localhost:8002")

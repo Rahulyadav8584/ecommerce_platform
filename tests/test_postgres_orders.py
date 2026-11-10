@@ -10,7 +10,7 @@ Verifies:
 
 import os
 import pytest
-from src.store_api.db import PostgresOrdersStore, get_order_store
+from src.store_api.db import PostgresOrdersStore
 from src.store_api.models import OrderStatus
 
 
@@ -90,3 +90,4 @@ def test_postgres_reset(pg_store):
     # Verify restored to PAID
     order = pg_store.get_order("order-1002")
     assert order.status == OrderStatus.PAID
+
